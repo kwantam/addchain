@@ -151,6 +151,25 @@ func sequence(chn []*big.Int) {
     }
 }
 
+/*
+func bits(x *big.Int) {
+    var bitnum = x.BitLen() - 1
+    for ; bitnum >= 0; bitnum-- {
+        if x.Bit(bitnum) > 0 {
+            print("1 ")
+        } else {
+            print("0 ")
+        }
+    }
+    print("\n")
+}
+
+func window(x *big.Int, len int) {
+    var in_window = false
+    var bitnum = x.BitLen()
+}
+*/
+
 func usage() {
     fmt.Printf("Usage: %s <formula>\n", os.Args[0])
 }
@@ -168,5 +187,6 @@ func main() {
         os.Exit(-1)
     }
 
+    //bits(q)
     sequence(minchain(q))
 }
