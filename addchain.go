@@ -4,6 +4,9 @@ import (
     "fmt"
     "math/big"
     "os"
+    "sort"
+    "strconv"
+    "strings"
 )
 
 func convert_next_value(current string) (string, string, bool, bool) {
@@ -133,6 +136,7 @@ func sequence(chn []*big.Int) {
             continue
         }
 
+        // TODO make this two nested loops
         for j := 0; j < i * i; j++ {
             var rem = j % i
             var quo = j / i
@@ -151,30 +155,19 @@ func sequence(chn []*big.Int) {
     }
 }
 
-func bits(x *big.Int) {
-    for bitnum := x.BitLen() - 1; bitnum >= 0; bitnum-- {
-        if x.Bit(bitnum) > 0 {
-            print("1")
-        } else {
-            print("0")
-        }
-    }
-    print("\n")
-}
-
 type winT struct {
-    start, end int
-    in_window bool
+    start, end, wval int
 }
 
-func window(x *big.Int, winsize int) {
+func window(x *big.Int, winsize int) ([]winT) {
     var in_window = false
     var win_start = -1
     var last_one = -1
     var thiswinsize = 0
     var bit = -1
     var bitnum = x.BitLen() - 1
-    var runs = make([]winT, 0, bitnum / 4)
+    var runs = make([]winT, 0, 1 + bitnum / winsize)
+    var thisrun = make([]int, 0, 1 + winsize)
     for ; bitnum >= -1; bitnum-- {
         // dummy value for last iteration
         if bitnum == -1 {
@@ -186,29 +179,41 @@ func window(x *big.Int, winsize int) {
             // update last-seen 1
             if bit > 0 {
                 last_one = bitnum
+                thisrun = append(thisrun, 1)
+            } else {
+                thisrun = append(thisrun, 0)
             }
 
             if (thiswinsize < winsize) && (bit >= 0) {
                 // continue growing the window
                 thiswinsize++
             } else {
-                // need to end the window
-                runs = append(runs, winT{win_start, last_one, true})
+                // compute the value in this window
+                var one_delta = last_one - bitnum
+                var thisrunval = 0
+                for _, bval := range thisrun[:len(thisrun)-one_delta] {
+                    thisrunval <<= 1
+                    thisrunval += bval
+                }
+                // end the window
+                runs = append(runs, winT{win_start, last_one, thisrunval})
+                thisrun = thisrun[:0]
                 in_window = false
                 win_start = last_one - 1
                 thiswinsize = last_one - bitnum + 1
                 last_one = -1
                 // special case when we hit the end of the number
                 if bitnum == -1 && win_start >= 0 {
-                    runs = append(runs, winT{win_start, 0, false})
+                    runs = append(runs, winT{win_start, 0, 0})
                 }
             }
         } else {
             if bit != 0 {
                 // valid zero-run has non-zero length and a valid start position
                 if win_start >= 0  && win_start > bitnum {
-                    runs = append(runs, winT{win_start, bitnum + 1, false})
+                    runs = append(runs, winT{win_start, bitnum + 1, 0})
                 }
+                thisrun = append(thisrun, 1)
                 in_window = true
                 win_start = bitnum
                 thiswinsize = 1
@@ -216,27 +221,57 @@ func window(x *big.Int, winsize int) {
             }
         }
     }
+    return runs
+}
 
-    // print out a graphical representation of the window
-    bits(x)
+func runs_to_dict(runs []winT) ([]int) {
+    var dict = make(map[int]bool)
+    dict[1] = true
+    dict[2] = true
     for _, run := range runs {
-        if run.in_window {
-            if run.start == run.end {
-                print("|")
-            } else {
-                print(">")
-                for i := 0; i < run.start - run.end - 1; i++ {
-                    print("-")
-                }
-                print("<")
-            }
+        if run.wval > 0 {
+            dict[run.wval] = true
+        }
+    }
+
+    var ret = make([]int, 0, len(dict))
+    for k, _ := range dict {
+        ret = append(ret, k)
+    }
+    sort.Ints(ret)
+    return ret
+}
+
+func display_window(x *big.Int, runs []winT) {
+    // print out a graphical representation of the window
+    for bitnum := x.BitLen() - 1; bitnum >= 0; bitnum-- {
+        if x.Bit(bitnum) > 0 {
+            print("1")
         } else {
-            for i := 0; i < run.start - run.end + 1; i++ {
-                print(" ")
-            }
+            print("0")
         }
     }
     print("\n")
+    var linestr = ""
+    var valstr = ""
+    for _, run := range runs {
+        if run.wval > 0 {
+            if run.start == run.end {
+                linestr += "|"
+                valstr += "1"
+            } else {
+                linestr += ">" + strings.Repeat("-", run.start - run.end - 1) + "<"
+                var tvstr = strconv.Itoa(run.wval)
+                valstr += tvstr + strings.Repeat(" ", run.start - run.end + 1 - len(tvstr))
+            }
+        } else {
+            var pstr = strings.Repeat(" ", run.start - run.end + 1)
+            linestr += pstr
+            valstr += pstr
+        }
+    }
+    println(linestr)
+    println(valstr)
 }
 
 func usage() {
@@ -256,6 +291,8 @@ func main() {
         os.Exit(-1)
     }
 
-    window(q, 5)
+    var runs = window(q, 10)
+    display_window(q, runs)
+    fmt.Println(runs_to_dict(runs))
     //sequence(minchain(q))
 }
