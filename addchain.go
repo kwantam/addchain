@@ -35,7 +35,7 @@ func convert_next_value(current string) (string, string, bool, bool) {
 func convert_formula(formula string) (*big.Int) {
     var current, next string = formula, ""
     var do_add, do_add_next, err bool = true, true, false
-    var two, q, tmp = big.NewInt(2), big.NewInt(0), big.NewInt(0)
+    var two, tmp, q = big.NewInt(2), big.NewInt(0), big.NewInt(0)
 
     for ; len(current) > 0; {
         tmp.SetUint64(0)
@@ -136,19 +136,15 @@ func sequence(chn []*big.Int) {
             continue
         }
 
-        // TODO make this two nested loops
-        for j := 0; j < i * i; j++ {
-            var rem = j % i
-            var quo = j / i
-            if rem <= quo {
-                var cmp = val.Cmp(tmp.Add(chn[quo], chn[rem]))
-                if cmp == 0 {
+        SeqOuter: for quo := 0; quo < i; quo++ {
+            for rem := 0; rem <= quo; rem++ {
+                if val.Cmp(tmp.Add(chn[quo], chn[rem])) == 0 {
                     if rem < quo {
                         fmt.Printf("    a[%d]=a[%d]*a[%d]\n", i, rem, quo)
                     } else {
                         fmt.Printf("    a[%d]=square(a[%d])\n", i, rem)
                     }
-                    break
+                    break SeqOuter
                 }
             }
         }
@@ -224,7 +220,14 @@ func window(x *big.Int, winsize int) ([]winT) {
     return runs
 }
 
-func runs_to_dict(runs []winT) ([]int) {
+// from https://github.com/cznic/sortutil/
+type BigIntSlice []*big.Int
+func (s BigIntSlice) Len() int           { return len(s) }
+func (s BigIntSlice) Less(i, j int) bool { return s[i].Cmp(s[j]) < 0 }
+func (s BigIntSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+
+// uniqued, sorted list of window values
+func runs_to_dict(runs []winT) ([]*big.Int) {
     var dict = make(map[int]bool)
     dict[1] = true
     dict[2] = true
@@ -234,16 +237,16 @@ func runs_to_dict(runs []winT) ([]int) {
         }
     }
 
-    var ret = make([]int, 0, len(dict))
+    var ret = make(BigIntSlice, 0, len(dict))
     for k, _ := range dict {
-        ret = append(ret, k)
+        ret = append(ret, big.NewInt(int64(k)))
     }
-    sort.Ints(ret)
+    sort.Sort(ret)
     return ret
 }
 
+// print out a graphical representation of the window
 func display_window(x *big.Int, runs []winT) {
-    // print out a graphical representation of the window
     for bitnum := x.BitLen() - 1; bitnum >= 0; bitnum-- {
         if x.Bit(bitnum) > 0 {
             print("1")
@@ -275,24 +278,47 @@ func display_window(x *big.Int, runs []winT) {
 }
 
 func usage() {
-    fmt.Printf("Usage: %s <formula>\n", os.Args[0])
+    fmt.Printf("Usage: %s <formula> [-w <winsize>]\n", os.Args[0])
 }
 
 func main() {
-    if len(os.Args) < 2 {
+    var q *big.Int = nil
+    var nargs = len(os.Args)
+    var winsize = 0
+    for argnum := 1; argnum < nargs; argnum++ {
+        if (os.Args[argnum] == "-w") {
+            if nargs - argnum < 2 {
+                usage()
+                fmt.Println("\n-w requires an argument")
+                os.Exit(-1)
+            }
+            argnum += 1
+            var err error
+            if winsize, err = strconv.Atoi(os.Args[argnum]); err != nil {
+                usage()
+                fmt.Printf("\ncannot interpret '%s' as an integer\n", os.Args[argnum])
+                os.Exit(-1)
+            }
+        } else {
+            q = convert_formula(os.Args[argnum])
+            if q == nil {
+                usage()
+                fmt.Printf("\ncannot convert formula '%s'\n", os.Args[argnum])
+                os.Exit(-1)
+            }
+        }
+    }
+    if q == nil || (q.IsUint64() && q.Uint64() < 5) {
         usage()
+        fmt.Println("\nYou must specify q > 4.")
         os.Exit(-1)
     }
 
-    q := convert_formula(os.Args[1])
-    if q == nil {
-        usage()
-        fmt.Printf("\ncannot convert formula '%s'\n", os.Args[1])
-        os.Exit(-1)
+    if winsize > 0 {
+        var runs = window(q, winsize)
+        display_window(q, runs)
+        fmt.Println(runs_to_dict(runs))
+    } else {
+        sequence(minchain(q))
     }
-
-    var runs = window(q, 10)
-    display_window(q, runs)
-    fmt.Println(runs_to_dict(runs))
-    //sequence(minchain(q))
 }
