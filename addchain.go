@@ -658,7 +658,9 @@ func main() {
     // find the best result
     var win = <-ch
     for wx := range ch {
-        if seq_len(wx.seq) < seq_len(win.seq) || (seq_len(wx.seq) == seq_len(win.seq) && seq_storage(wx.seq) < seq_storage(win.seq)) {
+        var l1, l2 = seq_len(wx.seq), seq_len(win.seq)
+        var s1, s2 = seq_storage(wx.seq), seq_storage(win.seq)
+        if l1 < l2 || (l1 == l2 && s1 < s2) {
             win = wx
         }
     }
