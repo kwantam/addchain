@@ -169,6 +169,14 @@ func seq_len(sequence []seqT) (int) {
     }
 }
 
+func seq_storage(sequence []seqT) (int) {
+    if len(sequence) == 0 {
+        return 0
+    } else {
+        return sequence[0].l + 1
+    }
+}
+
 func print_sequence(sequence []seqT) {
     const eqlen = 18
     var i = 0
@@ -189,13 +197,52 @@ func print_sequence(sequence []seqT) {
         i++
     }
 
-    fmt.Println("# Storage used:", sequence[0].l + 1)
+    fmt.Println("# Storage used:", seq_storage(sequence))
 }
 
 // **************************** Bos-Coster ***************************** //
 // **** windowing **** //
 type winT struct {
     start, end, wval int
+}
+
+// re-balance windows
+func win_balance(x *big.Int, runs []winT) ([]winT) {
+    for i := 0; i < len(runs) - 1; i++ {
+        // consider successive runs that are both non-zero
+        if runs[i].wval == 0 || runs[i+1].wval == 0 {
+            continue
+        }
+        var lr1 = runs[i].start - runs[i].end + 1
+        var lr2 = runs[i+1].start - runs[i+1].end + 1
+
+        // only rebalance if there's a difference
+        if (lr1 - lr2 < 2) && (lr2 - lr1 < 2) {
+            continue
+        }
+
+        // rebalance windows
+        var mid = (runs[i].start + runs[i+1].end) / 2
+        runs[i].end = mid + 1
+        runs[i+1].start = mid
+
+        // fix up window values
+        fix_run(x, &(runs[i]))
+        fix_run(x, &(runs[i+1]))
+
+        // if we created a hole, fix it
+        if runs[i].end - runs[i+1].start > 1 {
+            runs = append(runs, runs[len(runs)-1])
+            for j := len(runs)-2; j > i+1; j-- {
+                runs[j] = runs[j-1]
+            }
+            runs[i+1] = winT{runs[i].end - 1, runs[i+2].start + 1, 0}
+            i++
+        }
+        i++
+    }
+
+    return runs
 }
 
 func window(x *big.Int, winsize int) ([]winT) {
@@ -260,7 +307,7 @@ func window(x *big.Int, winsize int) ([]winT) {
             }
         }
     }
-    return balance(x, runs)
+    return win_balance(x, runs)
 }
 
 // fix-up a run (for rebalancing)
@@ -279,45 +326,6 @@ func fix_run(x *big.Int, run *winT) {
         ival += int(x.Bit(i))
     }
     run.wval = ival
-}
-
-// re-balance windows
-func balance(x *big.Int, runs []winT) ([]winT) {
-    for i := 0; i < len(runs) - 1; i++ {
-        // consider successive runs that are both non-zero
-        if runs[i].wval == 0 || runs[i+1].wval == 0 {
-            continue
-        }
-        var lr1 = runs[i].start - runs[i].end + 1
-        var lr2 = runs[i+1].start - runs[i+1].end + 1
-
-        // only rebalance if there's a difference
-        if (lr1 - lr2 < 2) && (lr2 - lr1 < 2) {
-            continue
-        }
-
-        // rebalance windows
-        var mid = (runs[i].start + runs[i+1].end) / 2
-        runs[i].end = mid + 1
-        runs[i+1].start = mid
-
-        // fix up window values
-        fix_run(x, &(runs[i]))
-        fix_run(x, &(runs[i+1]))
-
-        // if we created a hole, fix it
-        if runs[i].end - runs[i+1].start > 1 {
-            runs = append(runs, runs[len(runs)-1])
-            for j := len(runs)-2; j > i+1; j-- {
-                runs[j] = runs[j-1]
-            }
-            runs[i+1] = winT{runs[i].end - 1, runs[i+2].start + 1, 0}
-            i++
-        }
-        i++
-    }
-
-    return runs
 }
 
 // from https://github.com/cznic/sortutil/
@@ -446,52 +454,62 @@ func merge(l1, l2 []*big.Int) ([]*big.Int) {
 }
 
 // **** Bos-Coster reduction methods **** //
-func bc_approx(d, chn []*big.Int) ([]*big.Int, []*big.Int) {
+func bc_approx_test(d, chn []*big.Int) (int) {
     var targ = d[len(d)-1]
     var tmp = big.NewInt(0)
     var eps = big.NewInt(int64(targ.BitLen() - 1))
 
+    var aIdx = -1
     ApxOuter: for i := len(d)-2; i >= 0; i-- {
         for j := i-1; j >= 0; j-- {
             if tmp.Add(d[i], d[j]).Sub(targ, tmp).Cmp(eps) < 0 {
                 // found small epsilon
-                d = insert(d[:len(d)-1], tmp.Add(d[j], tmp))
-                chn = insert(chn, targ)
+                aIdx = i
                 break ApxOuter
             }
         }
     }
 
+    return aIdx
+}
+
+func bc_approx(d, chn []*big.Int, aIdx int) ([]*big.Int, []*big.Int) {
+    var targ = d[len(d)-1]
+    var tmp = big.NewInt(0).Sub(targ, d[aIdx])
+    d = insert(d[:len(d)-1], tmp)
+    chn = insert(chn, targ)
     return d, chn
 }
 
-func bc_halve(d, chn []*big.Int) ([]*big.Int, []*big.Int) {
+func bc_halve_test(d, chn []*big.Int) (int, int) {
     var targ = d[len(d)-1]
     var tmp = big.NewInt(0)
-    var blen int
+    var blen, best = 0, -1
 
-    for i := len(d) - 2; i >= 0; i-- {
-        tmp.Div(targ, d[i])                             // tmp = targ / fi
-        blen = tmp.BitLen() - 1                         // u = log2(targ / fi)
-        if blen < 1 {                                   // TODO is 1 the right value here ???
-            continue
+    for i := 0; i < len(d) - 1; i++ {
+        tmp.Sub(targ, d[i])
+        var j = 0
+        for ; tmp.Bit(j) == 0; j++ {}           // how many times does 2 divide?
+        if j > blen {
+            blen = j
+            best = i
         }
-        tmp.Rsh(targ, uint(blen))                       // targ // 2^blen
-        var klst = make([]*big.Int, 0, 2 + blen)        // k 2k 4k ... 2^blen k
-        for j := 0; j <= blen; j++ {
-            klst = append(klst, big.NewInt(0).Lsh(tmp, uint(j)))
-        }
-        if targ.Cmp(klst[blen]) == 0 {
-            d = merge(d[:len(d)-1], klst[:blen])        // don't re-insert an existing element
-        } else {
-            tmp.Sub(targ, klst[blen])                   // targ - 2^blen k
-            klst = insert(klst, tmp)                    // add it to the list
-            d = merge(d[:len(d)-1], klst)
-        }
-
-        chn = insert(chn, targ)
-        break
     }
+
+    return blen, best
+}
+
+func bc_halve(d, chn []*big.Int, blen, best int) ([]*big.Int, []*big.Int) {
+    var targ = d[len(d)-1]
+    var tmp = big.NewInt(0)
+
+    tmp.Sub(targ, d[best])
+    var klst = make([]*big.Int, 0, blen)
+    for j := blen - 1; j >= 0; j-- {
+        klst = append(klst, big.NewInt(0).Rsh(tmp, uint(j)))
+    }
+    d = merge(d[:len(d)-1], klst)
+    chn = insert(chn, targ)
 
     return d, chn
 }
@@ -503,8 +521,13 @@ func bos_coster(q *big.Int, winsize int) ([]*big.Int) {
     var chn = make([]*big.Int, 0, len(d))
 
     for ; len(d) > 2; {
-        d, chn = bc_halve(d, chn)
-        d, chn = bc_approx(d, chn)
+        if aIdx := bc_approx_test(d, chn); aIdx >= 0 {
+            d, chn = bc_approx(d, chn, aIdx)
+            continue
+        }
+        if blen, best := bc_halve_test(d, chn); best >= 0 {
+            d, chn = bc_halve(d, chn, blen, best)
+        }
     }
     chn = merge(d, chn)
 
@@ -608,7 +631,7 @@ func main() {
 
     // search in parallel
     const swin = 2
-    const ewin = 7
+    const ewin = 11
     var ch = make(chan runT, ewin - swin + 1)
     var wg = sync.WaitGroup{}
 
@@ -635,7 +658,7 @@ func main() {
     // find the best result
     var win = <-ch
     for wx := range ch {
-        if seq_len(wx.seq) < seq_len(win.seq) {
+        if seq_len(wx.seq) < seq_len(win.seq) || (seq_len(wx.seq) == seq_len(win.seq) && seq_storage(wx.seq) < seq_storage(win.seq)) {
             win = wx
         }
     }
