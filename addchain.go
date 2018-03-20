@@ -445,7 +445,7 @@ func bos_coster(q *big.Int, winsize int) ([]*big.Int) {
 }
 
 func usage() {
-    fmt.Printf("Usage: %s <formula> [-w <winsize>]\n", os.Args[0])
+    fmt.Printf("Usage: %s <formula>\n\n<formula> can be a decimal number or a formula like 2^255-19\n", os.Args[0])
 }
 
 func main() {
