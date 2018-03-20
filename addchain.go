@@ -1,74 +1,17 @@
 package main
 
 import (
+    "container/heap"
     "fmt"
     "math/big"
     "os"
     "sort"
     "strconv"
     "strings"
+    "sync"
 )
 
-func convert_next_value(current string) (string, string, bool, bool) {
-    var i int
-    for i=0; len(current) > i && current[i] >= '0' && current[i] <= '9'; i++ {}
-    nextval := current[0:i]
-    var newcurr string
-    var do_add bool
-    if i == len(current) {
-        newcurr = ""
-        do_add = true
-    } else {
-        if (current[i] != '+') && (current[i] != '-') {
-            return "", "", true, true
-        } else {
-            newcurr = current[i+1:]
-            do_add = true
-            if current[i] == '-' {
-                do_add = false
-            }
-        }
-    }
-    return nextval, newcurr, do_add, false
-}
-
-func convert_formula(formula string) (*big.Int) {
-    var current, next string = formula, ""
-    var do_add, do_add_next, err bool = true, true, false
-    var two, tmp, q = big.NewInt(2), big.NewInt(0), big.NewInt(0)
-
-    for ; len(current) > 0; {
-        tmp.SetUint64(0)
-        if (len(current) > 1) && (current[0:2] == "2^") {
-            current = current[2:]
-            if len(current) == 0 {
-                return nil
-            }
-            if current, next, do_add_next, err = convert_next_value(current); err {
-                return nil
-            }
-            tmp.SetString(current, 10)
-            tmp.Exp(two, tmp, nil)
-        } else {
-            if current, next, do_add_next, err = convert_next_value(current); err {
-                return nil
-            }
-            tmp.SetString(current, 10)
-        }
-
-        if do_add {
-            q.Add(q, tmp)
-        } else {
-            q.Sub(q, tmp)
-        }
-
-        current = next
-        do_add = do_add_next
-    }
-
-    return q
-}
-
+// ******************* Bergeron-Berstel-Brlek-Duboc ******************** //
 func oplus(v []*big.Int, j *big.Int) ([]*big.Int) {
     var tmp = big.NewInt(0)
     tmp.Add(v[len(v)-1], j)
@@ -127,42 +70,130 @@ func chain(x, k *big.Int) ([]*big.Int) {
     return oplus(otimes(chain(k, r), minchain(q)), r)
 }
 
-func print_sequence(chn []*big.Int) {
+
+// ******************** create and display sequences ********************** //
+type seqT struct {
+    l, r, varnum int
+    val *big.Int
+}
+
+// int-heap (from container/heap examples)
+type IntHeap []int
+func (h IntHeap) Len() int              { return len(h) }
+func (h IntHeap) Less(i, j int) bool    { return h[i] < h[j] }
+func (h IntHeap) Swap(i, j int)         { h[i], h[j] = h[j], h[i] }
+func (h *IntHeap) Push(x interface{})   { *h = append(*h, x.(int)) }
+func (h *IntHeap) Pop() interface{} {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[0 : n-1]
+	return x
+}
+
+func seq_alloc(sequence []seqT) ([]seqT) {
+    // heap of available variables
+    var avails = make(IntHeap, 0, len(sequence))
+    for i := 1; i < len(sequence); i++ {
+        avails = append(avails, i)
+    }
+    heap.Init(&avails)
+
+    // always need output value
+    sequence[len(sequence)-1].varnum = 0
+
+    var maxstor = 0
+    var trim = 0
+    for i := len(sequence) - 1; i > 0; i-- {
+        if sequence[i].varnum < 0 {
+            // reached an unneeded variable! trim it
+            trim += 1
+            continue
+        }
+
+        // no longer need this varnum allocated
+        heap.Push(&avails, sequence[i].varnum)
+        var lval = sequence[i].l
+        var rval = sequence[i].r
+
+        // allocate variables for predecessors, if necesary
+        for _, lr := range [2]int{lval, rval} {
+            if sequence[lr].varnum < 0 {
+                var nextvar = heap.Pop(&avails).(int)
+                sequence[lr].varnum = nextvar
+                if nextvar > maxstor {
+                    maxstor = nextvar
+                }
+            }
+        }
+    }
+
+    sequence[0].r = trim
+    sequence[0].l = maxstor
+    return sequence
+}
+
+func make_sequence(chn []*big.Int) ([]seqT) {
     var tmp = big.NewInt(0)
-    const eqlen = 25
+    var sequence = make([]seqT, 0, len(chn))
     for i, val := range chn {
         if i == 0 {
-            var pstr = "a[0]=x"
-            pstr += strings.Repeat(" ", eqlen - len(pstr))
-            fmt.Println(pstr, "#", val)
+            sequence = append(sequence, seqT{-1, 0, -1, val})
             continue
         }
 
         var found = false
-        SeqOuter: for quo := 0; quo < i; quo++ {
-            for rem := 0; rem <= quo; rem++ {
-                if val.Cmp(tmp.Add(chn[quo], chn[rem])) == 0 {
-                    var pstr = ""
-                    if rem < quo {
-                        pstr = fmt.Sprintf("a[%d]=a[%d]*a[%d]", i, rem, quo)
-                    } else {
-                        pstr = fmt.Sprintf("a[%d]=square(a[%d])", i, rem)
-                    }
-                    pstr += strings.Repeat(" ", eqlen - len(pstr))
-                    fmt.Println(pstr, "#", val)
+        SeqOuter: for j := 0; j < i; j++ {
+            for k := 0; k <= j; k++ {
+                if val.Cmp(tmp.Add(chn[j], chn[k])) == 0 {
+                    sequence = append(sequence, seqT{j, k, -1, val})
                     found = true
                     break SeqOuter
                 }
             }
         }
-
         if !found {
             fmt.Println("*** ERROR *** could not find predecessor for value", val, "*** ERROR ***")
             os.Exit(-1)
         }
     }
+
+    return seq_alloc(sequence)
 }
 
+func seq_len(sequence []seqT) (int) {
+    if len(sequence) == 0 {
+        return 0
+    } else {
+        return len(sequence) - sequence[0].r
+    }
+}
+
+func print_sequence(sequence []seqT) {
+    const eqlen = 18
+    var i = 0
+    for _, seq := range sequence {
+        var pstr string
+        if i == 0 {
+            pstr = fmt.Sprintf("t%d = input", seq.varnum)
+        } else if seq.varnum < 0 {
+            continue
+        } else if seq.l == seq.r {
+            pstr = fmt.Sprintf("t%d = sqr(t%d)", seq.varnum, sequence[seq.l].varnum)
+        } else {
+            pstr = fmt.Sprintf("t%d = t%d * t%d", seq.varnum, sequence[seq.l].varnum, sequence[seq.r].varnum)
+        }
+
+        pstr += strings.Repeat(" ", eqlen - len(pstr))
+        fmt.Println(pstr, "#", i, ":", seq.val)
+        i++
+    }
+
+    fmt.Println("# Storage used:", sequence[0].l + 1)
+}
+
+// **************************** Bos-Coster ***************************** //
+// **** windowing **** //
 type winT struct {
     start, end, wval int
 }
@@ -229,6 +260,63 @@ func window(x *big.Int, winsize int) ([]winT) {
             }
         }
     }
+    return balance(x, runs)
+}
+
+// fix-up a run (for rebalancing)
+func fix_run(x *big.Int, run *winT) {
+    // move start and end until they're on ones
+    for ; x.Bit(run.start) == 0; {
+        run.start--
+    }
+    for ; x.Bit(run.end) == 0; {
+        run.end++
+    }
+
+    var ival = 0
+    for i := run.start; i >= run.end; i-- {
+        ival <<= 1
+        ival += int(x.Bit(i))
+    }
+    run.wval = ival
+}
+
+// re-balance windows
+func balance(x *big.Int, runs []winT) ([]winT) {
+    for i := 0; i < len(runs) - 1; i++ {
+        // consider successive runs that are both non-zero
+        if runs[i].wval == 0 || runs[i+1].wval == 0 {
+            continue
+        }
+        var lr1 = runs[i].start - runs[i].end + 1
+        var lr2 = runs[i+1].start - runs[i+1].end + 1
+
+        // only rebalance if there's a difference
+        if (lr1 - lr2 < 2) && (lr2 - lr1 < 2) {
+            continue
+        }
+
+        // rebalance windows
+        var mid = (runs[i].start + runs[i+1].end) / 2
+        runs[i].end = mid + 1
+        runs[i+1].start = mid
+
+        // fix up window values
+        fix_run(x, &(runs[i]))
+        fix_run(x, &(runs[i+1]))
+
+        // if we created a hole, fix it
+        if runs[i].end - runs[i+1].start > 1 {
+            runs = append(runs, runs[len(runs)-1])
+            for j := len(runs)-2; j > i+1; j-- {
+                runs[j] = runs[j-1]
+            }
+            runs[i+1] = winT{runs[i].end - 1, runs[i+2].start + 1, 0}
+            i++
+        }
+        i++
+    }
+
     return runs
 }
 
@@ -289,6 +377,7 @@ func display_window(x *big.Int, runs []winT) {
     println(valstr)
 }
 
+// **** dictionary / chain management **** //
 func insert(l []*big.Int, v *big.Int) ([]*big.Int) {
     if v.Sign() == 0 {
         return l
@@ -356,12 +445,11 @@ func merge(l1, l2 []*big.Int) ([]*big.Int) {
     return ret
 }
 
+// **** Bos-Coster reduction methods **** //
 func bc_approx(d, chn []*big.Int) ([]*big.Int, []*big.Int) {
     var targ = d[len(d)-1]
     var tmp = big.NewInt(0)
-    // TODO should this be a constant rather than log(k) ???
     var eps = big.NewInt(int64(targ.BitLen() - 1))
-    //var eps = big.NewInt(3)
 
     ApxOuter: for i := len(d)-2; i >= 0; i-- {
         for j := i-1; j >= 0; j-- {
@@ -393,10 +481,14 @@ func bc_halve(d, chn []*big.Int) ([]*big.Int, []*big.Int) {
         for j := 0; j <= blen; j++ {
             klst = append(klst, big.NewInt(0).Lsh(tmp, uint(j)))
         }
-        tmp.Sub(targ, klst[blen])                   // targ - 2^blen k
-        klst = insert(klst, tmp)                    // add it to the list
+        if targ.Cmp(klst[blen]) == 0 {
+            d = merge(d[:len(d)-1], klst[:blen])        // don't re-insert an existing element
+        } else {
+            tmp.Sub(targ, klst[blen])                   // targ - 2^blen k
+            klst = insert(klst, tmp)                    // add it to the list
+            d = merge(d[:len(d)-1], klst)
+        }
 
-        d = merge(d[:len(d)-1], klst)
         chn = insert(chn, targ)
         break
     }
@@ -404,34 +496,15 @@ func bc_halve(d, chn []*big.Int) ([]*big.Int, []*big.Int) {
     return d, chn
 }
 
-func bc_cleanup(d, chn []*big.Int) ([]*big.Int, []*big.Int) {
-    if len(chn) == 0 {
-        return d, chn
-    }
-    var targ = d[len(d)-1]
-    var idx = sort.Search(len(chn), func(i int) bool { return chn[i].Cmp(targ) >= 0 })
-    if idx < len(chn) && targ.Cmp(chn[idx]) == 0 {
-        d = d[:len(d)-1]
-    }
-    if d[0].Sign() == 0 {
-        d = d[1:]
-    }
-    if chn[0].Sign() == 0 {
-        chn = chn[1:]
-    }
-    return d, chn
-}
-
+// **** Bos-Coster dispatch **** //
 func bos_coster(q *big.Int, winsize int) ([]*big.Int) {
     var runs = window(q, winsize)
-    //display_window(q, runs)
     var d = runs_to_dict(runs)
     var chn = make([]*big.Int, 0, len(d))
 
     for ; len(d) > 2; {
         d, chn = bc_halve(d, chn)
         d, chn = bc_approx(d, chn)
-        d, chn = bc_cleanup(d, chn)
     }
     chn = merge(d, chn)
 
@@ -449,37 +522,129 @@ func bos_coster(q *big.Int, winsize int) ([]*big.Int) {
     return chn
 }
 
+// ********************** cmdline UI functions ********************* //
+func convert_next_value(current string) (string, string, bool, bool) {
+    var i int
+    for i=0; len(current) > i && current[i] >= '0' && current[i] <= '9'; i++ {}
+    nextval := current[0:i]
+    var newcurr string
+    var do_add bool
+    if i == len(current) {
+        newcurr = ""
+        do_add = true
+    } else {
+        if (current[i] != '+') && (current[i] != '-') {
+            return "", "", true, true
+        } else {
+            newcurr = current[i+1:]
+            do_add = true
+            if current[i] == '-' {
+                do_add = false
+            }
+        }
+    }
+    return nextval, newcurr, do_add, false
+}
+
+func convert_formula(formula string) (*big.Int) {
+    var current, next string = formula, ""
+    var do_add, do_add_next, err bool = true, true, false
+    var two, tmp, q = big.NewInt(2), big.NewInt(0), big.NewInt(0)
+
+    for ; len(current) > 0; {
+        tmp.SetUint64(0)
+        if (len(current) > 1) && (current[0:2] == "2^") {
+            current = current[2:]
+            if len(current) == 0 {
+                return nil
+            }
+            if current, next, do_add_next, err = convert_next_value(current); err {
+                return nil
+            }
+            tmp.SetString(current, 10)
+            tmp.Exp(two, tmp, nil)
+        } else {
+            if current, next, do_add_next, err = convert_next_value(current); err {
+                return nil
+            }
+            tmp.SetString(current, 10)
+        }
+
+        if do_add {
+            q.Add(q, tmp)
+        } else {
+            q.Sub(q, tmp)
+        }
+
+        current = next
+        do_add = do_add_next
+    }
+
+    return q
+}
+
 func usage() {
     fmt.Printf("Usage: %s <formula>\n\n<formula> can be a decimal number or a formula like 2^255-19\n", os.Args[0])
 }
 
-func main() {
-    var q *big.Int = nil
+type runT struct {
+    size int
+    seq []seqT
+}
 
+func main() {
     // read in arguments
     if len(os.Args) < 2 {
         usage()
         fmt.Println("\nYou must specify q > 4.")
         os.Exit(-1)
     }
-    q = convert_formula(os.Args[1])
+    var q = convert_formula(os.Args[1])
     if q == nil {
         usage()
         fmt.Printf("\ncannot convert formula '%s'\n", os.Args[1])
         os.Exit(-1)
     }
 
-    // try Bergeron-Berstel-Brlek-Duboc first
-    var winner = 1
-    var chn = minchain(q)
-    // then try Bos-Coster for various window sizes
-    for i := 2; i < 10; i++ {
-        var tmp = bos_coster(q, i)
-        if len(tmp) < len(chn) {
-            winner = i
-            chn = tmp
+    // search in parallel
+    const swin = 2
+    const ewin = 7
+    var ch = make(chan runT, ewin - swin + 1)
+    var wg = sync.WaitGroup{}
+
+    // Bergeron-Berstel-Brlek-Duboc
+    wg.Add(1)
+    go func (wg *sync.WaitGroup) {
+        ch <- runT{1, make_sequence(minchain(q))}
+        wg.Done()
+    }(&wg)
+
+    // Bos-Coster for various window sizes
+    for i := swin; i < ewin; i++ {
+        wg.Add(1)
+        go func (wg *sync.WaitGroup, i int) {
+            ch <- runT{i, make_sequence(bos_coster(q, i))}
+            wg.Done()
+        }(&wg, i)
+    }
+
+    // wait for all to be done
+    wg.Wait()
+    close(ch)
+
+    // find the best result
+    var win = <-ch
+    for wx := range ch {
+        if seq_len(wx.seq) < seq_len(win.seq) {
+            win = wx
         }
     }
-    print_sequence(chn)
-    fmt.Printf("    # (Winner was method %d.)\n", winner)
+
+    // show the winner
+    print_sequence(win.seq)
+    if win.size == 1 {
+        fmt.Println("# Winner was Bergeron-Berstel-Brlek-Duboc")
+    } else {
+        fmt.Printf("# Winner was Bos-Coster, window size = %d.\n", win.size)
+    }
 }
