@@ -136,6 +136,7 @@ func sequence(chn []*big.Int) {
             continue
         }
 
+        var found = false
         SeqOuter: for quo := 0; quo < i; quo++ {
             for rem := 0; rem <= quo; rem++ {
                 if val.Cmp(tmp.Add(chn[quo], chn[rem])) == 0 {
@@ -144,9 +145,15 @@ func sequence(chn []*big.Int) {
                     } else {
                         fmt.Printf("    a[%d]=square(a[%d])\n", i, rem)
                     }
+                    found = true
                     break SeqOuter
                 }
             }
+        }
+
+        if !found {
+            fmt.Println("*** ERROR *** could not find predecessor for value", val, "*** ERROR ***")
+            os.Exit(-1)
         }
     }
 }
@@ -277,48 +284,197 @@ func display_window(x *big.Int, runs []winT) {
     println(valstr)
 }
 
+func insert(l []*big.Int, v *big.Int) ([]*big.Int) {
+    if v.Sign() == 0 {
+        return l
+    }
+
+    // maybe 0-length array, so just create a new one
+    var ln = len(l)
+    if ln == 0 {
+        return append(l, v)
+    }
+
+    var idx = sort.Search(ln, func(i int) bool { return l[i].Cmp(v) >= 0 })
+    // maybe value just goes at end of array
+    if idx == ln {
+        return append(l, v)
+    }
+
+    // make sure we are not inserting a duplicate value
+    if v.Cmp(l[idx]) == 0 {
+        return l
+    }
+
+    // otherwise need to move values out of the way first
+    l = append(l, nil)
+    for i := ln; i > idx; i-- {
+        l[i] = l[i-1]
+    }
+    l[idx] = v
+    return l
+}
+
+func merge(l1, l2 []*big.Int) ([]*big.Int) {
+    var ret = make([]*big.Int, 0, len(l1) + len(l2))
+    var i1, i2, ll1, ll2 = 0, 0, len(l1), len(l2)
+
+    // while we still have elements
+    for ; i1 < ll1 || i2 < ll2; {
+        if i1 == ll1 {
+            // i1 is out
+            ret = append(ret, l2[i2])
+            i2++
+        } else if i2 == ll2 {
+            // i2 is out
+            ret = append(ret, l1[i1])
+            i1++
+        } else {
+            var cres = l1[i1].Cmp(l2[i2])
+            if cres < 0 {
+                // i1 is lesser value
+                ret = append(ret, l1[i1])
+                i1++
+            } else if cres == 0 {
+                // i1 and i2 have the same value
+                ret = append(ret, l1[i1])
+                i1++
+                i2++
+            } else {
+                // i2 is lesser value
+                ret = append(ret, l2[i2])
+                i2++
+            }
+        }
+    }
+
+    return ret
+}
+
+func bc_approx(d, chn []*big.Int) ([]*big.Int, []*big.Int) {
+    var targ = d[len(d)-1]
+    var tmp = big.NewInt(0)
+    // TODO should this be a constant rather than log(k) ???
+    var eps = big.NewInt(int64(targ.BitLen() - 1))
+    //var eps = big.NewInt(3)
+
+    ApxOuter: for i := len(d)-2; i >= 0; i-- {
+        for j := i-1; j >= 0; j-- {
+            if tmp.Add(d[i], d[j]).Sub(targ, tmp).Cmp(eps) < 0 {
+                // found small epsilon
+                d = insert(d[:len(d)-1], tmp.Add(d[j], tmp))
+                chn = insert(chn, targ)
+                break ApxOuter
+            }
+        }
+    }
+
+    return d, chn
+}
+
+func bc_halve(d, chn []*big.Int) ([]*big.Int, []*big.Int) {
+    var targ = d[len(d)-1]
+    var tmp = big.NewInt(0)
+    var blen int
+
+    for i := len(d) - 2; i >= 0; i-- {
+        tmp.Div(targ, d[i])                             // tmp = targ / fi
+        blen = tmp.BitLen() - 1                         // u = log2(targ / fi)
+        if blen < 1 {                                   // TODO is 1 the right value here ???
+            continue
+        }
+        tmp.Rsh(targ, uint(blen))                       // targ // 2^blen
+        var klst = make([]*big.Int, 0, 2 + blen)        // k 2k 4k ... 2^blen k
+        for j := 0; j <= blen; j++ {
+            klst = append(klst, big.NewInt(0).Lsh(tmp, uint(j)))
+        }
+        tmp.Sub(targ, klst[blen])                   // targ - 2^blen k
+        klst = insert(klst, tmp)                    // add it to the list
+
+        d = merge(d[:len(d)-1], klst)
+        chn = insert(chn, targ)
+        break
+    }
+
+    return d, chn
+}
+
+func bc_cleanup(d, chn []*big.Int) ([]*big.Int, []*big.Int) {
+    if len(chn) == 0 {
+        return d, chn
+    }
+    var targ = d[len(d)-1]
+    var idx = sort.Search(len(chn), func(i int) bool { return chn[i].Cmp(targ) >= 0 })
+    if idx < len(chn) && targ.Cmp(chn[idx]) == 0 {
+        d = d[:len(d)-1]
+    }
+    if d[0].Sign() == 0 {
+        d = d[1:]
+    }
+    if chn[0].Sign() == 0 {
+        chn = chn[1:]
+    }
+    return d, chn
+}
+
+func bos_coster(q *big.Int, winsize int) ([]*big.Int) {
+    var runs = window(q, winsize)
+    //display_window(q, runs)
+    var d = runs_to_dict(runs)
+    var chn = make([]*big.Int, 0, len(d))
+
+    for ; len(d) > 2; {
+        d, chn = bc_halve(d, chn)
+        d, chn = bc_approx(d, chn)
+        d, chn = bc_cleanup(d, chn)
+    }
+    chn = merge(d, chn)
+
+    var curr = big.NewInt(int64(runs[0].wval))
+    for _, run := range runs[1:] {
+        var ln = run.start - run.end + 1
+        for i := 0; i < ln; i++ {
+            curr.Lsh(curr, 1)
+            chn = insert(chn, big.NewInt(0).Set(curr))
+        }
+        curr.Add(curr, big.NewInt(int64(run.wval)))
+        chn = insert(chn, big.NewInt(0).Set(curr))
+    }
+
+    return chn
+}
+
 func usage() {
     fmt.Printf("Usage: %s <formula> [-w <winsize>]\n", os.Args[0])
 }
 
 func main() {
     var q *big.Int = nil
-    var nargs = len(os.Args)
-    var winsize = 0
-    for argnum := 1; argnum < nargs; argnum++ {
-        if (os.Args[argnum] == "-w") {
-            if nargs - argnum < 2 {
-                usage()
-                fmt.Println("\n-w requires an argument")
-                os.Exit(-1)
-            }
-            argnum += 1
-            var err error
-            if winsize, err = strconv.Atoi(os.Args[argnum]); err != nil {
-                usage()
-                fmt.Printf("\ncannot interpret '%s' as an integer\n", os.Args[argnum])
-                os.Exit(-1)
-            }
-        } else {
-            q = convert_formula(os.Args[argnum])
-            if q == nil {
-                usage()
-                fmt.Printf("\ncannot convert formula '%s'\n", os.Args[argnum])
-                os.Exit(-1)
-            }
-        }
-    }
-    if q == nil || (q.IsUint64() && q.Uint64() < 5) {
+
+    // read in arguments
+    if len(os.Args) < 2 {
         usage()
         fmt.Println("\nYou must specify q > 4.")
         os.Exit(-1)
     }
-
-    if winsize > 0 {
-        var runs = window(q, winsize)
-        display_window(q, runs)
-        fmt.Println(runs_to_dict(runs))
-    } else {
-        sequence(minchain(q))
+    q = convert_formula(os.Args[1])
+    if q == nil {
+        usage()
+        fmt.Printf("\ncannot convert formula '%s'\n", os.Args[1])
+        os.Exit(-1)
     }
+
+    // try Bergeron-Berstel-Brlek-Duboc first
+    var winner = 1
+    var chn = minchain(q)
+    // then try Bos-Coster for various window sizes
+    for i := 2; i < 10; i++ {
+        var tmp = bos_coster(q, i)
+        if len(tmp) < len(chn) {
+            winner = i
+            chn = tmp
+        }
+    }
+    sequence(chn)
+    fmt.Printf("(Winner was method %d.)\n", winner)
 }
