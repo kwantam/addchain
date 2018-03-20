@@ -127,12 +127,14 @@ func chain(x, k *big.Int) ([]*big.Int) {
     return oplus(otimes(chain(k, r), minchain(q)), r)
 }
 
-func sequence(chn []*big.Int) {
+func print_sequence(chn []*big.Int) {
     var tmp = big.NewInt(0)
+    const eqlen = 25
     for i, val := range chn {
-        fmt.Print(val)
         if i == 0 {
-            fmt.Println("    a[0]=x")
+            var pstr = "a[0]=x"
+            pstr += strings.Repeat(" ", eqlen - len(pstr))
+            fmt.Println(pstr, "#", val)
             continue
         }
 
@@ -140,11 +142,14 @@ func sequence(chn []*big.Int) {
         SeqOuter: for quo := 0; quo < i; quo++ {
             for rem := 0; rem <= quo; rem++ {
                 if val.Cmp(tmp.Add(chn[quo], chn[rem])) == 0 {
+                    var pstr = ""
                     if rem < quo {
-                        fmt.Printf("    a[%d]=a[%d]*a[%d]\n", i, rem, quo)
+                        pstr = fmt.Sprintf("a[%d]=a[%d]*a[%d]", i, rem, quo)
                     } else {
-                        fmt.Printf("    a[%d]=square(a[%d])\n", i, rem)
+                        pstr = fmt.Sprintf("a[%d]=square(a[%d])", i, rem)
                     }
+                    pstr += strings.Repeat(" ", eqlen - len(pstr))
+                    fmt.Println(pstr, "#", val)
                     found = true
                     break SeqOuter
                 }
@@ -475,6 +480,6 @@ func main() {
             chn = tmp
         }
     }
-    sequence(chn)
-    fmt.Printf("(Winner was method %d.)\n", winner)
+    print_sequence(chn)
+    fmt.Printf("    # (Winner was method %d.)\n", winner)
 }
