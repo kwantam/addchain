@@ -454,7 +454,7 @@ func merge(l1, l2 []*big.Int) ([]*big.Int) {
 }
 
 // **** Bos-Coster reduction methods **** //
-func bc_approx_test(d, chn []*big.Int) (int) {
+func bc_approx_test(d []*big.Int) (int) {
     var targ = d[len(d)-1]
     var tmp = big.NewInt(0)
     var eps = big.NewInt(int64(targ.BitLen() - 1))
@@ -481,7 +481,7 @@ func bc_approx(d, chn []*big.Int, aIdx int) ([]*big.Int, []*big.Int) {
     return d, chn
 }
 
-func bc_halve_test(d, chn []*big.Int) (int, int) {
+func bc_halve_test(d []*big.Int) (int, int) {
     var targ = d[len(d)-1]
     var tmp = big.NewInt(0)
     var blen, best = 0, -1
@@ -514,6 +514,31 @@ func bc_halve(d, chn []*big.Int, blen, best int) ([]*big.Int, []*big.Int) {
     return d, chn
 }
 
+func bc_divide_test(targ *big.Int) (*big.Int) {
+    var smallvals = [...]int{19, 17, 13, 11, 7 , 5, 3}
+    var tmp = big.NewInt(0)
+
+    for _, val := range smallvals {
+        if tmp.SetInt64(int64(val)).Mod(targ, tmp).Sign() == 0 {
+            return tmp.SetInt64(int64(val))
+        }
+    }
+
+    return nil
+}
+
+func bc_divide(d, chn, dchain []*big.Int, div *big.Int) ([]*big.Int, []*big.Int) {
+    var targ = d[len(d)-1]
+    div.Div(targ, div)
+    for _, dch := range dchain {
+        dch.Mul(dch, div)
+    }
+    d = merge(d[:len(d)-1], dchain)
+    chn = insert(chn, targ)
+
+    return d, chn
+}
+
 // **** Bos-Coster dispatch **** //
 func bos_coster(q *big.Int, winsize int) ([]*big.Int) {
     var runs = window(q, winsize)
@@ -521,12 +546,27 @@ func bos_coster(q *big.Int, winsize int) ([]*big.Int) {
     var chn = make([]*big.Int, 0, len(d))
 
     for ; len(d) > 2; {
-        if aIdx := bc_approx_test(d, chn); aIdx >= 0 {
+        if aIdx := bc_approx_test(d); aIdx >= 0 {
             d, chn = bc_approx(d, chn, aIdx)
             continue
         }
-        if blen, best := bc_halve_test(d, chn); best >= 0 {
+
+        // choose between division and halving
+        var blen, best = bc_halve_test(d)
+        if div := bc_divide_test(d[len(d)-1]); div != nil {
+            var dchain = minchain(div)
+            dchain = dchain[:len(dchain)-1]
+
+            if best < 0 || len(dchain) < blen {
+                d, chn = bc_divide(d, chn, dchain, div)
+                continue
+            }
+        }
+
+        if best >= 0 {
             d, chn = bc_halve(d, chn, blen, best)
+        } else {
+            panic("Cannot make progress.")
         }
     }
     chn = merge(d, chn)
