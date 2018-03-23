@@ -1,6 +1,8 @@
 # addchain
 
-Compute addition chains using the Bergeron-Berstel-Brlek-Duboc and Bos-Coster methods.
+Compute addition chains using three methods: Bergeron-Berstel-Brlek-Duboc, Bos-Coster, and Yacobi.
+
+(I have not implemented the Bos-Coster Lucas method.)
 
 See also:
 
@@ -11,6 +13,10 @@ Bergeron, Berstel, Brlek. "Efficient computation of addition chains." Journal de
 Bos, Coster. "Addition chain heuristics." In Proceedings of CRYPTO, Aug. 1989.
 
 Doche. "Chapter 9: Exponentiation." In Cohen, Frey, Doche, eds. *Handbook of Elliptic and Hyperelliptic Curve Cryptography.* CRC Press, 2005.
+
+Yacobi, Y. "Exponentiating faster with addition chains." In Proceedings of EUROCRYPT, May 1990.
+
+Yacobi, Y. "Fast exponentiation using data compression." Siam J. Computing, vol 28 no 2, 1998, pp. 700-703.
 
 # license
 

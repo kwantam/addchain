@@ -11,6 +11,139 @@ import (
     "sync"
 )
 
+// ******************* Yacobi L-Z--based *********************** //
+type lzdT struct {
+    nbits uint
+    val *big.Int
+    zeroone, one *lzdT
+}
+
+func build_lz(x *big.Int) ([]*big.Int, []*lzdT) {
+    var maxdepth uint = 1
+    var root = &lzdT{1, big.NewInt(1), nil, nil}
+    var ord = make([]*lzdT, 0, x.BitLen() / 2)
+    var curr *lzdT
+    var nzeros uint = 0
+    var zero = big.NewInt(0)
+    for i := 0; i < x.BitLen(); i++ {
+        if curr == nil {
+            if x.Bit(i) != 0 {
+                // found a 1, which is the root
+                curr = root
+                if nzeros > 0 {
+                    var lzd_zero = &lzdT{nzeros, zero, nil, nil}
+                    ord = append(ord, lzd_zero)
+                }
+            } else {
+                nzeros++
+            }
+        } else if x.Bit(i) == 0 {
+            i++
+            if i >= x.BitLen() || x.Bit(i) == 0 {
+                // two zeros in a row can't be a codeword
+                ord = append(ord, curr)
+                nzeros, curr = 2, nil
+                continue
+            }
+
+            if curr.zeroone == nil {
+                maxdepth, ord = insert_lz(curr, ord, maxdepth, false)
+                nzeros, curr = 0, nil
+            } else {
+                curr = curr.zeroone
+            }
+        } else {
+            if curr.one == nil {
+                maxdepth, ord = insert_lz(curr, ord, maxdepth, true)
+                nzeros, curr = 0, nil
+            } else {
+                curr = curr.one
+            }
+        }
+    }
+    if curr != nil {
+        ord = append(ord, curr)
+    }
+    //display_lz(root)
+
+    var chn = make([]*big.Int, 0, len(ord) + int(maxdepth))
+    for i := uint(0); i < maxdepth; i++ {
+        var tmp = big.NewInt(1)
+        tmp.Lsh(tmp, i)
+        chn = append(chn, tmp)
+    }
+    for i := 0; i < len(ord); i++ {
+        chn = insert(chn, ord[i].val)
+    }
+
+    return chn, ord
+}
+
+func insert_lz(curr *lzdT, ord []*lzdT, maxdepth uint, is_one bool) (uint, []*lzdT) {
+    var depth = curr.nbits + 2
+    if is_one {
+        depth = curr.nbits + 1
+    }
+    var tmp = big.NewInt(1)
+    tmp.Lsh(tmp, depth - 1).Add(tmp, curr.val)
+    var new_lz = &lzdT{depth, tmp, nil, nil}
+
+    // insert into tree
+    if is_one {
+        curr.one = new_lz
+    } else {
+        curr.zeroone = new_lz
+    }
+
+    // new maxdepth
+    if depth > maxdepth {
+        maxdepth = depth
+    }
+
+    return maxdepth, append(ord, new_lz)
+}
+
+func display_lz(root *lzdT) {
+    if root == nil {
+        return
+    }
+
+    fmt.Println(root.nbits, root.val, show_binary(root.val))
+    display_lz(root.zeroone)
+    display_lz(root.one)
+}
+
+func show_binary(x *big.Int) (string) {
+    var buffer = ""
+    for bitnum := x.BitLen() - 1; bitnum >= 0; bitnum-- {
+        if x.Bit(bitnum) > 0 {
+            buffer += "1"
+        } else {
+            buffer += "0"
+        }
+    }
+
+    return buffer
+}
+
+func yacobi_lz(x *big.Int) ([]*big.Int) {
+    var chn, ord = build_lz(x)
+
+    var last = len(ord) - 1
+    var curr = big.NewInt(0).Set(ord[last].val)
+    for j := last - 1; j >= 0; j-- {
+        var cord = ord[j]
+        for i := uint(0); i < cord.nbits; i++ {
+            curr.Lsh(curr, 1)
+            chn = insert(chn, big.NewInt(0).Set(curr))
+        }
+        curr.Add(curr, cord.val)
+        chn = insert(chn, big.NewInt(0).Set(curr))
+    }
+
+    return chn
+}
+
 // ******************* Bergeron-Berstel-Brlek-Duboc ******************** //
 func oplus(v []*big.Int, j *big.Int) ([]*big.Int) {
     var tmp = big.NewInt(0)
@@ -196,8 +329,6 @@ func print_sequence(sequence []seqT) {
         fmt.Println(pstr, "#", i, ":", seq.val)
         i++
     }
-
-    fmt.Println("# Storage used:", seq_storage(sequence))
 }
 
 // **************************** Bos-Coster ***************************** //
@@ -355,14 +486,8 @@ func runs_to_dict(runs []winT) ([]*big.Int) {
 
 // print out a graphical representation of the window
 func display_window(x *big.Int, runs []winT) {
-    for bitnum := x.BitLen() - 1; bitnum >= 0; bitnum-- {
-        if x.Bit(bitnum) > 0 {
-            print("1")
-        } else {
-            print("0")
-        }
-    }
-    print("\n")
+    fmt.Println(show_binary(x))
+
     var linestr = ""
     var valstr = ""
     for _, run := range runs {
@@ -655,6 +780,17 @@ type runT struct {
     seq []seqT
 }
 
+func show_run(win *runT, slen, ssto int) {
+    if win.size == 0 {
+        fmt.Print("# Yacobi")
+    } else if win.size == 1 {
+        fmt.Print("# Bergeron-Berstel-Brlek-Duboc")
+    } else {
+        fmt.Printf("# Bos-Coster (win=%d)", win.size)
+    }
+    fmt.Printf(": %d (%d)\n", slen, ssto)
+}
+
 func main() {
     // read in arguments
     if len(os.Args) < 2 {
@@ -672,8 +808,15 @@ func main() {
     // search in parallel
     const swin = 2
     const ewin = 11
-    var ch = make(chan runT, ewin - swin + 1)
+    var ch = make(chan runT, ewin - swin + 2)
     var wg = sync.WaitGroup{}
+
+    // Yacobi LZ method
+    wg.Add(1)
+    go func (wg *sync.WaitGroup) {
+        ch <- runT{0, make_sequence(yacobi_lz(q))}
+        wg.Done()
+    }(&wg)
 
     // Bergeron-Berstel-Brlek-Duboc
     wg.Add(1)
@@ -696,20 +839,19 @@ func main() {
     close(ch)
 
     // find the best result
-    var win = <-ch
+    var win runT
+    var wlen, wsto = (1 << 30), (1 << 30)
     for wx := range ch {
-        var l1, l2 = seq_len(wx.seq), seq_len(win.seq)
-        var s1, s2 = seq_storage(wx.seq), seq_storage(win.seq)
-        if l1 < l2 || (l1 == l2 && s1 < s2) {
+        var xlen, xsto = seq_len(wx.seq), seq_storage(wx.seq)
+        show_run(&wx, xlen, xsto)
+
+        if xlen < wlen || (xlen == wlen && xsto < wsto) {
+            wlen, wsto = xlen, xsto
             win = wx
         }
     }
 
     // show the winner
     print_sequence(win.seq)
-    if win.size == 1 {
-        fmt.Println("# Winner was Bergeron-Berstel-Brlek-Duboc")
-    } else {
-        fmt.Printf("# Winner was Bos-Coster, window size = %d.\n", win.size)
-    }
+    show_run(&win, wlen, wsto)
 }
