@@ -137,9 +137,7 @@ func insert(l []*big.Int, v *big.Int) ([]*big.Int) {
 
     // otherwise need to move values out of the way first
     l = append(l, nil)
-    for i := ln; i > idx; i-- {
-        l[i] = l[i-1]
-    }
+    copy(l[idx+1:], l[idx:])
     l[idx] = v
     return l
 }
