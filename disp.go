@@ -1,10 +1,10 @@
 package main
 
 import (
+    "bytes"
     "fmt"
     "math/big"
     "strings"
-    "strconv"
 )
 
 // print the LZ compression tree from Yacobi
@@ -20,22 +20,24 @@ func display_lz(root *lzdT) {
 
 // show a binary expansion of a big.Int
 func show_binary(x *big.Int) (string) {
-    var buffer = ""
+    var buffer bytes.Buffer
     for bitnum := x.BitLen() - 1; bitnum >= 0; bitnum-- {
         if x.Bit(bitnum) > 0 {
-            buffer += "1"
+            buffer.WriteRune('1')
         } else {
-            buffer += "0"
+            buffer.WriteRune('0')
         }
     }
 
-    return buffer
+    return buffer.String()
 }
 
 // print out a graphical representation of an add-sequence
 func print_sequence(sequence []seqT) {
     const eqlen = 18
     var i = 0
+    var buffer bytes.Buffer
+
     for _, seq := range sequence {
         var pstr string
         if i == 0 {
@@ -48,34 +50,37 @@ func print_sequence(sequence []seqT) {
             pstr = fmt.Sprintf("t%d = t%d * t%d", seq.varnum, sequence[seq.l].varnum, sequence[seq.r].varnum)
         }
 
-        pstr += strings.Repeat(" ", eqlen - len(pstr))
-        fmt.Println(pstr, "#", i, ":", seq.val)
+        buffer.WriteString(fmt.Sprintf("%*s # %4d : %v\n", -eqlen, pstr, i, seq.val))
         i++
     }
+
+    fmt.Print(buffer.String())
 }
 
 // print out a graphical representation of a windowed binary representation
 func display_window(x *big.Int, runs []winT) {
     fmt.Println(show_binary(x))
 
-    var linestr = ""
-    var valstr = ""
+    var linestr bytes.Buffer
+    var valstr bytes.Buffer
     for _, run := range runs {
         if run.wval > 0 {
             if run.start == run.end {
-                linestr += "|"
-                valstr += "1"
+                linestr.WriteRune('|')
+                valstr.WriteRune('1')
             } else {
-                linestr += ">" + strings.Repeat("-", run.start - run.end - 1) + "<"
-                var tvstr = strconv.Itoa(run.wval)
-                valstr += tvstr + strings.Repeat(" ", run.start - run.end + 1 - len(tvstr))
+                linestr.WriteRune('>')
+                linestr.WriteString(strings.Repeat("-", run.start - run.end - 1))
+                linestr.WriteRune('<')
+                valstr.WriteString(fmt.Sprintf("%*d", -(run.start - run.end + 1), run.wval))
             }
         } else {
             var pstr = strings.Repeat(" ", run.start - run.end + 1)
-            linestr += pstr
-            valstr += pstr
+            linestr.WriteString(pstr)
+            valstr.WriteString(pstr)
         }
     }
-    println(linestr)
-    println(valstr)
+
+    fmt.Println(linestr.String())
+    fmt.Println(valstr.String())
 }
