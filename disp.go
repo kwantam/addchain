@@ -84,3 +84,17 @@ func display_window(x *big.Int, runs []winT) {
     fmt.Println(linestr.String())
     fmt.Println(valstr.String())
 }
+
+// show the result of a run
+func show_run(win *runT, slen, ssto int) {
+    var pstr string
+    if win.size == 0 {
+        pstr = "# Yacobi"
+    } else if win.size == 1 {
+        pstr = "# Bergeron-Berstel-Brlek-Duboc"
+    } else {
+        pstr = fmt.Sprintf("# Bos-Coster (win=%d)", win.size)
+    }
+
+    fmt.Printf("%-30s : %4d (%2d)\n", pstr, slen, ssto)
+}

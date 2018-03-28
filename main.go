@@ -77,17 +77,6 @@ type runT struct {
     seq []seqT
 }
 
-func show_run(win *runT, slen, ssto int) {
-    if win.size == 0 {
-        fmt.Print("# Yacobi")
-    } else if win.size == 1 {
-        fmt.Print("# Bergeron-Berstel-Brlek-Duboc")
-    } else {
-        fmt.Printf("# Bos-Coster (win=%d)", win.size)
-    }
-    fmt.Printf(": %d (%d)\n", slen, ssto)
-}
-
 func main() {
     // read in arguments
     if len(os.Args) < 2 {
