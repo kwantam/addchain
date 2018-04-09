@@ -50,7 +50,7 @@ func print_sequence(sequence []seqT) {
             pstr = fmt.Sprintf("t%d = t%d * t%d", seq.varnum, sequence[seq.l].varnum, sequence[seq.r].varnum)
         }
 
-        buffer.WriteString(fmt.Sprintf("%*s # %4d : %v\n", -eqlen, pstr, i, seq.val))
+        fmt.Fprintf(&buffer, "%*s # %4d : %v\n", -eqlen, pstr, i, seq.val)
         i++
     }
 
@@ -72,7 +72,7 @@ func display_window(x *big.Int, runs []winT) {
                 linestr.WriteRune('>')
                 linestr.WriteString(strings.Repeat("-", run.start - run.end - 1))
                 linestr.WriteRune('<')
-                valstr.WriteString(fmt.Sprintf("%*d", -(run.start - run.end + 1), run.wval))
+                fmt.Fprintf(&valstr, "%*d", -(run.start - run.end + 1), run.wval)
             }
         } else {
             var pstr = strings.Repeat(" ", run.start - run.end + 1)
